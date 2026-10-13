@@ -1,0 +1,41 @@
+globalTTL: 3600
+
+macros:
+  base_path: /home/nathan/local_llm
+  
+  default_llama_bin: >
+    ${base_path}/llama_cpp/build/bin/llama-server --port ${PORT}
+
+  default_args: |
+    --ctx-size 131072
+    -ngl 65
+    -b 2048
+    -ub 2048
+    --cache-type-k q4_0
+    --cache-type-v q4_0
+    -np 1
+    --host 0.0.0.0
+    --temp 0.7
+    --top-p 0.9
+    --top-k 40
+    --min-p 0.05
+    --repeat-penalty 1.1
+    --prio 2
+    --flash-attn on
+    --jinja
+    --chat-template-file ${base_path}/config/chat_template.jinja 
+    --spec-type draft-mtp
+    --spec-draft-n-max 3
+    -ngld 99
+    --kv-unified
+    --reasoning-preserve
+    --cache-idle-slots
+    --parallel 1
+    --batch-size 256
+
+models:
+  "unsloth-qwen38-27B-Q4KM":
+    cmd: |
+      ${default_llama_bin}
+      -hf "unsloth/Qwen3.8-27B-GGUF:Q4_K_M"
+      ${default_args}
