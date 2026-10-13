@@ -7,7 +7,7 @@ SCREEN_SESSION_NAME="llamaswap"
 SCREEN_COMMAND="$LLAMA_SWAP_PATH/llama-swap -listen 0.0.0.0:10080 -config $BASE_DIR/config/llama_swap.yaml"
 
 if [ ! -d $LLAMA_SWAP_PATH ]; then
-	$SCRIPT_DIR/fetch_llama_swap.sh
+	$SCRIPT_DIR/build_llama_swap.sh
 fi
 
 if ! screen -list | grep -q "$SCREEN_SESSION_NAME"; then
