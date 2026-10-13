@@ -8,7 +8,8 @@ macros:
 
   default_args: |
     --ctx-size 131072
-    -ngl 65
+    -ngl 999
+    -fa 1
     -b 2048
     -ub 2048
     --cache-type-k q4_0
@@ -25,7 +26,7 @@ macros:
     --jinja
     --chat-template-file ${base_path}/config/chat_template.jinja 
     --spec-type draft-mtp
-    --spec-draft-n-max 3
+    --spec-draft-n-max 2
     -ngld 99
     --kv-unified
     --reasoning-preserve
