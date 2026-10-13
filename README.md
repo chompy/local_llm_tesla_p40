@@ -1,7 +1,7 @@
 # My Local Agentic LLM Setup
 
 This repo contains scripts and configuration files I use to run LLMs locally for agentic coding. Specifically the scripts here build
-llama.cpp, run llama-swap which helps manage multiple models, and run a opencode web server.
+llama.cpp, build and run llama-swap, and runs an opencode web server.
 
 My setup has a Nvidia Tesla P40 (24GB VRAM) GPU with 32GB of DDR4 system memory.
 
