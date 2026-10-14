@@ -1,15 +1,20 @@
 globalTTL: 3600
 
 macros:
-  base_path: /home/nathan/local_llm
-  
-  default_llama_bin: >
-    ${base_path}/llama_cpp/build/bin/llama-server --port ${PORT}
 
+  default_llama_bin: >
+    lib/llama_cpp/build/bin/llama-server --port ${PORT}
+
+  # Tuned for a Tesla P40 (sm_61, DP4A, no tensor cores) with 24GB VRAM.
+  # Q4_K_M weights (~17GB) + q4_0 KV cache at 131K ctx fit in the card: Qwen3.8 is a
+  # hybrid SSM/full-attention model (only ~1/4 of layers hold KV), so the cache stays
+  # around ~2.5GB even at 131072 tokens. Verified live: server idles at ~21GiB used.
+  # MTP speculative decoding (--spec-type draft-mtp) works because the GGUF ships its
+  # own nextn layer — no separate draft model needed, and it saves full forward passes.
   default_args: |
     --ctx-size 131072
     -ngl 999
-    -fa 1
+    --flash-attn on
     -b 2048
     -ub 2048
     --cache-type-k q4_0
@@ -22,17 +27,14 @@ macros:
     --min-p 0.05
     --repeat-penalty 1.1
     --prio 2
-    --flash-attn on
     --jinja
-    --chat-template-file config/chat_template.jinja 
+    --chat-template-file config/chat_template.jinja
     --spec-type draft-mtp
     --spec-draft-n-max 2
     -ngld 99
     --kv-unified
     --reasoning-preserve
     --cache-idle-slots
-    --parallel 1
-    --batch-size 256
 
 models:
   "unsloth-qwen38-27B-Q4KM":
