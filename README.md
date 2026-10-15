@@ -37,6 +37,14 @@ On first run llama.cpp is cloned and compiled with CUDA, which takes a long time
 
 Attach to a session with `screen -r llamaswap` or `screen -r opencode`; detach again without killing it using Ctrl-A D. List sessions with `screen -ls`.
 
+To stop everything, run `stop.sh`:
+
+```sh
+./stop.sh
+```
+
+It terminates both screen sessions and sweeps up any leftover processes — notably the llama-server instances spawned by llama-swap, which run in their own process groups and would otherwise keep holding VRAM after their parent dies. It is idempotent: running it when nothing is up just reports that no sessions were found.
+
 The individual scripts can also be run standalone; they are non-blocking and will not re-create a session that is already running:
 
 - `scripts/start_llama_swap.sh`: start llama-swap in a detached screen session if one doesn't exist
@@ -48,7 +56,7 @@ The individual scripts can also be run standalone; they are non-blocking and wil
 - `scripts/build_llama_cpp.sh`: clone/pull llama.cpp and build it with CUDA. Uses `-DGGML_CUDA_FORCE_MMQ=ON` so quantized GEMMs run on Pascal's DP4A units; do not add `-DGGML_CUDA_FORCE_CUBLAS` alongside it (it takes precedence in code and silently disables MMQ)
 - `scripts/build_llama_swap.sh`: clone llama-swap master and build the Go binary into `lib/llama_swap/llama-swap` (wipes any existing checkout first, so this always tracks upstream)
 - `scripts/fetch_opencode.sh`: install OpenCode via npm into `lib/opencode/`
-- `scripts/generate_opencode_json.py`: replace the models section of an OpenCode JSON config with the model keys from the llama-swap YAML (creates a `.backup` first; pass `--no-backup` to skip)
+- `scripts/generate_opencode_json.py`: replace the models section of an OpenCode JSON config with the model definitions from the llama-swap YAML — display name, context limit (from `--ctx-size`) and per-response output limit (from `-n`/`--predict`, default 16384). Both limit fields are required by OpenCode's schema; without them OpenCode falls back to its built-in defaults (creates a `.backup` first; pass `--no-backup` to skip)
 - `scripts/start_llama_swap.sh`: start llama-swap inside a detached screen session if one doesn't already exist
 - `scripts/start_opencode.sh`: start opencode web server inside a detached screen session if one doesn't already exist
 
