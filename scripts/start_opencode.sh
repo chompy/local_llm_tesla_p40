@@ -23,11 +23,11 @@ cd "$BASE_DIR"
 if screen -list | grep -q "$SCREEN_SESSION_NAME"; then
   echo "> $SCREEN_SESSION_NAME session already running"
 else
-  # Build the runtime config from the repo template + llama-swap YAML. It lands in
+  # Build the runtime config from the repo template + model.yaml. It lands in
   # /tmp (regenerated on every fresh start) and is passed to opencode via
   # OPENCODE_CONFIG, since `opencode serve` has no --config flag.
   echo "> Building /tmp/opencode.json"
-  python3 $SCRIPT_DIR/generate_opencode_json.py $BASE_DIR/config/llama_swap.yaml $BASE_DIR/config/opencode.json.tmpl -o /tmp/opencode.json
+  python3 $SCRIPT_DIR/generate_opencode_json.py $BASE_DIR/config/model.yaml $BASE_DIR/config/opencode.json.tmpl -o /tmp/opencode.json
 
   # Launch with HOME pointed at the isolated state root (OC_HOME). OpenCode
   # resolves its whole home — config dir, cache, session database, logs — from

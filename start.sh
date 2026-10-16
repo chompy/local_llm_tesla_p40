@@ -11,8 +11,8 @@ if [ ! -x "$LLAMA_SERVER_BIN" ]; then
 	"$BASE_DIR/scripts/build_llama_cpp.sh" || exit 1
 fi
 
-echo "> Starting llama-swap and opencode web servers"
+echo "> Starting llama-server and opencode web servers"
 # Both sub-scripts are non-blocking: they create detached screen sessions if the
 # session doesn't exist yet, then return. Attach later with `screen -r <name>`.
-"$BASE_DIR/scripts/start_llama_swap.sh" || exit 1
+"$BASE_DIR/scripts/start_llama_server.sh" || exit 1
 "$BASE_DIR/scripts/start_opencode.sh" || exit 1

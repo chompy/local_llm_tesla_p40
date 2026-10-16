@@ -1,69 +1,40 @@
 #!/usr/bin/env python3
 """
-Build an OpenCode runtime config from a template plus a YAML definition file.
+Build an OpenCode runtime config from a template plus the model definition YAML.
 
 Starts from the repo's OpenCode config template (config/opencode.json.tmpl),
-syncs each model's display name and token limits into it, and writes the
-finished config to /tmp/opencode.json (or --output). start_opencode.sh then
-launches `opencode serve` with OPENCODE_CONFIG pointed at that file, so the
-template is the single source of truth instead of ~/.config/opencode/opencode.json.
+syncs the model's display name, token limits and the provider baseURL into it,
+and writes the finished config to /tmp/opencode.json (or --output).
+start_opencode.sh then launches `opencode serve` with OPENCODE_CONFIG pointed at
+that file, so the template + model.yaml are the single source of truth instead of
+~/.config/opencode/opencode.json.
 
-Token limits are synced so OpenCode reports the real context window instead of
-its built-in default:
-
-- context: from --ctx-size in the model's llama-server cmd
-- output:  from -n/--predict when present (the per-response max_tokens that gets
-           sent to llama-server), otherwise DEFAULT_OUTPUT_LIMIT. Both fields are
-           REQUIRED by OpenCode's config schema — a limit with only `context`
-           fails validation and makes the whole model disappear.
+Synced from config/model.yaml:
+- name:    display name derived from model_key (title-cased)
+- context: from --ctx-size in args — OpenCode reports the real window instead of
+           its built-in default
+- output:  from -n/--predict when present (the per-response max_tokens sent to
+           llama-server), otherwise DEFAULT_OUTPUT_LIMIT. Both limit fields are
+           REQUIRED by OpenCode's schema — a limit with only `context` fails
+           validation and makes the whole model disappear.
+- baseURL: http://localhost:<port>/v1, so the provider block tracks the port in
+           model.yaml instead of drifting from it.
 """
 
 import yaml
 import json
 import argparse
 import re
+import shlex
 import sys
 from pathlib import Path
-from typing import Dict, Any, Optional
-
-
-def expand_macros(cmd: str, macros: Dict[str, Any]) -> str:
-    """
-    Expand ${macro} references in a command the same way llama-swap does.
-
-    Unknown references (e.g. ${PORT}, filled in by llama-swap at runtime) are left as-is.
-    """
-    result = cmd or ""
-    for name, value in macros.items():
-        result = result.replace("${" + str(name) + "}", str(value))
-    return result
-
-
-def extract_ctx_size(cmd: str, macros: Dict[str, Any]) -> Optional[int]:
-    """
-    Find the --ctx-size value in a model's (macro-expanded) command.
-
-    Args:
-        cmd: The raw cmd string from the YAML model definition
-        macros: The 'macros' section of the YAML file
-
-    Returns:
-        The context size as an int, or None if no --ctx-size was found
-    """
-    tokens = expand_macros(cmd, macros).split()
-    for i, token in enumerate(tokens):
-        if token == "--ctx-size" and i + 1 < len(tokens) and tokens[i + 1].isdigit():
-            return int(tokens[i + 1])
-        match = re.match(r"^--ctx-size=(\d+)$", token)
-        if match:
-            return int(match.group(1))
-    return None
+from typing import List, Optional
 
 
 # Fallback per-response output limit. llama-server itself is unlimited by default
 # (n_predict = -1), so this value only bounds what OpenCode requests per response.
 # 16K leaves room for long agentic responses/tool calls; override it by adding
-# -n <N> (or --predict) to the model's cmd in llama_swap.yaml.
+# -n <N> (or --predict) to the args list in model.yaml.
 DEFAULT_OUTPUT_LIMIT = 16384
 
 # Where the finished config lands. start_opencode.sh launches `opencode serve`
@@ -71,117 +42,139 @@ DEFAULT_OUTPUT_LIMIT = 16384
 # ~/.config/opencode/opencode.json. Regenerated fresh on every new session.
 DEFAULT_OUTPUT = '/tmp/opencode.json'
 
+# The provider entry in the template that this script fills in (id == the key
+# OpenCode shows as llama-server/<model_key>).
+PROVIDER_KEY = 'llama-server'
 
-def extract_output_limit(cmd: str, macros: Dict[str, Any]) -> Optional[int]:
+
+def extract_flag_value(tokens: List[str], names: List[str]) -> Optional[int]:
     """
-    Find the per-response token limit (-n/--predict/--n-predict) in a model's
-    (macro-expanded) command. Exact-token matching so it never collides with -np.
+    Find an integer flag value in a token list, matching either `--flag 123` or
+    `--flag=123` forms. Exact-token matching so e.g. -n never collides with -np.
 
     Args:
-        cmd: The raw cmd string from the YAML model definition
-        macros: The 'macros' section of the YAML file
+        tokens: Flattened argv of the model's launch command
+        names: Flag spellings to look for (e.g. ["-n", "--predict"])
 
     Returns:
-        The output limit as an int, or None if no predict flag was found
+        The value as an int, or None if no matching flag was found
     """
-    tokens = expand_macros(cmd, macros).split()
     for i, token in enumerate(tokens):
-        if token in ("-n", "--predict", "--n-predict") and i + 1 < len(tokens) and tokens[i + 1].isdigit():
+        if token in names and i + 1 < len(tokens) and tokens[i + 1].isdigit():
             return int(tokens[i + 1])
-        match = re.match(r"^(?:-n|--predict|--n-predict)=(\d+)$", token)
+        match = re.match(r"^(?:" + "|".join(re.escape(n) for n in names) + r")=(\d+)$", token)
         if match:
             return int(match.group(1))
     return None
 
 
-def load_yaml_models(yaml_path: str) -> Dict[str, dict]:
+def load_model(yaml_path: str):
     """
-    Load model definitions from YAML file.
+    Load the single model definition from model.yaml.
 
     Args:
-        yaml_path: Path to the YAML file
+        yaml_path: Path to config/model.yaml
 
     Returns:
-        Dictionary mapping model IDs to their OpenCode model entries
-        (display name plus context limit taken from --ctx-size in the cmd)
+        (model_key, port, entry) where entry is the OpenCode model dict
+        ({"name": ..., optionally "limit": {"context": N, "output": M}})
     """
     with open(yaml_path, 'r', encoding='utf-8') as f:
-        yaml_data = yaml.safe_load(f)
+        data = yaml.safe_load(f) or {}
 
-    models = {}
-    if 'models' in yaml_data:
-        macros = yaml_data.get('macros', {}) or {}
-        for model_key, model_def in yaml_data['models'].items():
-            # Create a user-friendly display name from the model key
-            display_name = model_key.replace('-', ' ').replace('_', ' ').title()
-            entry: dict = {"name": display_name}
+    if not isinstance(data, dict):
+        print(f"Error: top level of {yaml_path} must be a mapping", file=sys.stderr)
+        sys.exit(1)
 
-            ctx_size = None
-            out_size = None
-            if isinstance(model_def, dict):
-                cmd = model_def.get('cmd', '')
-                ctx_size = extract_ctx_size(cmd, macros)
-                out_size = extract_output_limit(cmd, macros)
+    missing = [k for k in ('model_key', 'port') if data.get(k) in (None, '')]
+    if missing:
+        print(f"Error: model.yaml is missing required field(s): {', '.join(missing)}", file=sys.stderr)
+        sys.exit(1)
 
-            # OpenCode's schema requires BOTH context and output in a limit block;
-            # with no --ctx-size we omit the whole block rather than emit an invalid one.
-            if ctx_size is not None:
-                entry["limit"] = {"context": ctx_size, "output": out_size or DEFAULT_OUTPUT_LIMIT}
-            else:
-                print(f"Warning: no --ctx-size found for model '{model_key}', "
-                      f"OpenCode will use its default context limit", file=sys.stderr)
+    try:
+        port = int(data['port'])
+    except (TypeError, ValueError):
+        print(f"Error: 'port' must be an integer, got {data['port']!r}", file=sys.stderr)
+        sys.exit(1)
 
-            models[model_key] = entry
+    model_key = str(data['model_key'])
+    # Display name derived from the key the same way as before (title-cased).
+    display_name = model_key.replace('-', ' ').replace('_', ' ').title()
+    entry: dict = {"name": display_name}
 
-    return models
+    # args entries may carry flag+value pairs ("--ctx-size 131072") or bare
+    # flags; flatten each one back into individual tokens.
+    tokens: List[str] = []
+    for i, arg in enumerate(data.get('args') or []):
+        if not isinstance(arg, str):
+            print(f"Error: args[{i}] must be a string, got {arg!r}", file=sys.stderr)
+            sys.exit(1)
+        tokens.extend(shlex.split(arg))
+
+    ctx_size = extract_flag_value(tokens, ['--ctx-size'])
+    out_size = extract_flag_value(tokens, ['-n', '--predict', '--n-predict'])
+
+    # OpenCode's schema requires BOTH context and output in a limit block;
+    # with no --ctx-size we omit the whole block rather than emit an invalid one.
+    if ctx_size is not None:
+        entry["limit"] = {"context": ctx_size, "output": out_size or DEFAULT_OUTPUT_LIMIT}
+    else:
+        print(f"Warning: no --ctx-size found in args for model '{model_key}', "
+              f"OpenCode will use its default context limit", file=sys.stderr)
+
+    return model_key, port, entry
 
 
-def update_json_models(json_path: str, yaml_models: Dict[str, dict], output_path: str = None) -> None:
+def update_json_model(json_path: str, model_key: str, port: int, entry: dict, output_path: str = None) -> None:
     """
-    Fill the models section of an OpenCode config template with models from YAML.
+    Fill the provider section of an OpenCode config template with the model from YAML.
 
     Args:
         json_path: Path to the JSON template file (read-only source; never modified)
-        yaml_models: Dictionary of model IDs and their OpenCode entries
-            ({"name": ..., optionally "limit": {"context": N}})
+        model_key: The id under which the model is registered (provider/<key>)
+        port: llama-server port — becomes options.baseURL so it tracks model.yaml
+        entry: OpenCode model dict ({"name": ..., optionally "limit": {...}})
         output_path: Optional output path (default: overwrite input file)
     """
     # Load existing JSON
     with open(json_path, 'r', encoding='utf-8') as f:
         json_data = json.load(f)
-    
+
     # Check if the expected structure exists
     if 'provider' not in json_data:
         print("Error: 'provider' key not found in JSON file", file=sys.stderr)
         sys.exit(1)
-    
-    if 'llama-swap' not in json_data['provider']:
-        print("Error: 'llama-swap' provider not found in JSON file", file=sys.stderr)
+
+    if PROVIDER_KEY not in json_data['provider']:
+        print(f"Error: '{PROVIDER_KEY}' provider not found in JSON file", file=sys.stderr)
         sys.exit(1)
-    
-    if 'models' not in json_data['provider']['llama-swap']:
-        print("Error: 'models' key not found under provider.llama-swap", file=sys.stderr)
+
+    provider = json_data['provider'][PROVIDER_KEY]
+    if 'options' not in provider or 'baseURL' not in provider['options']:
+        print(f"Error: 'options.baseURL' not found under provider.{PROVIDER_KEY}", file=sys.stderr)
         sys.exit(1)
-    
-    # Replace models (entries already shaped for OpenCode by load_yaml_models)
-    json_data['provider']['llama-swap']['models'] = dict(yaml_models)
-    
+
+    # Sync the endpoint and replace models (entry already shaped for OpenCode)
+    provider['options']['baseURL'] = f"http://localhost:{port}/v1"
+    provider['models'] = {model_key: entry}
+
     # Save the updated JSON (template stays untouched; output is a fresh artifact)
     output_file = output_path if output_path else json_path
     with open(output_file, 'w', encoding='utf-8') as f:
         json.dump(json_data, f, indent=2, ensure_ascii=False)
         f.write('\n')
-    
-    print(f"Successfully updated {len(yaml_models)} models in {output_file}")
+
+    print(f"Successfully updated model '{model_key}' in {output_file} "
+          f"(baseURL -> http://localhost:{port}/v1)")
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Build an OpenCode config from a template plus model definitions in a YAML file'
+        description='Build an OpenCode config from a template plus the model definition YAML'
     )
     parser.add_argument(
         'yaml_file',
-        help='Path to the YAML file containing model definitions'
+        help='Path to the model definition YAML file (config/model.yaml)'
     )
     parser.add_argument(
         'template_file',
@@ -194,48 +187,44 @@ def main():
     )
 
     args = parser.parse_args()
-    
+
     # Validate input files
     if not Path(args.yaml_file).exists():
         print(f"Error: YAML file '{args.yaml_file}' not found", file=sys.stderr)
         sys.exit(1)
-    
+
     if not Path(args.template_file).exists():
         print(f"Error: template file '{args.template_file}' not found", file=sys.stderr)
         sys.exit(1)
-    
+
     try:
-        # Load models from YAML
-        print(f"Loading models from {args.yaml_file}...")
-        yaml_models = load_yaml_models(args.yaml_file)
-        
-        if not yaml_models:
-            print("Warning: No models found in YAML file", file=sys.stderr)
-            sys.exit(1)
-        
-        print(f"Found {len(yaml_models)} models: {', '.join(yaml_models.keys())}")
-        
+        # Load the model from YAML
+        print(f"Loading model from {args.yaml_file}...")
+        model_key, port, entry = load_model(args.yaml_file)
+        print(f"Found model: {model_key}")
+
         # Fill the template and write the finished config (fresh every run —
         # the template is a read-only source in the repo, so no backup needed)
         print(f"Writing {args.output} from {args.template_file}...")
-        update_json_models(args.template_file, yaml_models, args.output)
-        
+        update_json_model(args.template_file, model_key, port, entry, args.output)
+
         # Display summary
-        print("\nUpdated models:")
-        for model_id, entry in yaml_models.items():
-            limit = entry.get('limit')
-            if limit:
-                suffix = f" (ctx {limit['context']}, out {limit['output']})"
-            else:
-                suffix = " (no --ctx-size found, default context limit)"
-            print(f"  {model_id} -> {entry['name']}{suffix}")
-            
+        limit = entry.get('limit')
+        if limit:
+            suffix = f" (ctx {limit['context']}, out {limit['output']})"
+        else:
+            suffix = " (no --ctx-size found, default context limit)"
+        print(f"\nUpdated model:")
+        print(f"  {model_key} -> {entry['name']}{suffix}")
+
     except yaml.YAMLError as e:
         print(f"Error parsing YAML file: {e}", file=sys.stderr)
         sys.exit(1)
     except json.JSONDecodeError as e:
         print(f"Error parsing JSON file: {e}", file=sys.stderr)
         sys.exit(1)
+    except SystemExit:
+        raise
     except Exception as e:
         print(f"Unexpected error: {e}", file=sys.stderr)
         sys.exit(1)

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Stop the llama-swap and opencode services started by start.sh (and any
+# Stop the llama-server and opencode services started by start.sh (and any
 # leftover processes from them), in reverse order of startup.
 
 BASE_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
@@ -23,10 +23,9 @@ stop_session() {
 }
 
 stop_session opencode
-stop_session llamaswap
+stop_session llama-server
 
-# Sweep for survivors. llama-swap spawns its llama-server instances in their own
-# process groups, so they outlive the session kill and must be matched by name.
+# Sweep for survivors (e.g. a server started outside the screen sessions).
 # Patterns are scoped to this repo's component paths (as they appear in cmdline).
 sleep 2
 sweep() {
@@ -38,7 +37,6 @@ sweep() {
 	fi
 }
 sweep "llama_cpp/build/bin/llama-server"
-sweep "lib/llama_swap/llama-swap"
 sweep "lib/opencode/node_modules/.bin/opencode"
 
 echo "> Done. Check VRAM with: nvidia-smi, sessions with: screen -ls"

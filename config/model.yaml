@@ -1,0 +1,46 @@
+# Single source of truth for what this stack serves and how llama-server is
+# launched (replaces config/llama_swap.yaml now that we run one model directly).
+#
+# Read by:
+# - scripts/generate_llama_server_cmd.py — builds the exact command line
+#   start_llama_server.sh runs (binary + --port + -hf + args, in order)
+# - scripts/generate_opencode_json.py    — syncs the model into OpenCode's
+#   config: display name from model_key, context limit from --ctx-size in
+#   args, per-response output limit from -n/--predict if present (else 16384),
+#   and the provider baseURL from port
+
+model_key: unsloth-qwen38-27B-Q4KM          # id used in OpenCode (llama-server/<key>)
+hf_model: "unsloth/Qwen3.8-27B-GGUF:Q4_K_M"  # -hf value; downloaded to the HF cache on first run
+port: 5800                                  # llama-server listens here
+
+# Everything appended after `--port <port> -hf <hf_model>` — verbatim, in order.
+# Tuned for a Tesla P40 (sm_61, DP4A, no tensor cores) with 24GB VRAM.
+# Q4_K_M weights (~17GB) + q4_0 KV cache at 131K ctx fit in the card: Qwen3.8 is a
+# hybrid SSM/full-attention model (only ~1/4 of layers hold KV), so the cache stays
+# around ~2.5GB even at 131072 tokens. Verified live: server idles at ~21GiB used.
+# MTP speculative decoding (--spec-type draft-mtp) works because the GGUF ships its
+# own nextn layer — no separate draft model needed, and it saves full forward passes.
+args:
+  - --ctx-size 131072
+  - -ngl 999
+  - --flash-attn on
+  - -b 2048
+  - -ub 2048
+  - --cache-type-k q4_0
+  - --cache-type-v q4_0
+  - -np 1
+  - --host 0.0.0.0
+  - --temp 0.7
+  - --top-p 0.9
+  - --top-k 40
+  - --min-p 0.05
+  - --repeat-penalty 1.1
+  - --prio 2
+  - --jinja
+  - --chat-template-file config/chat_template.jinja
+  - --spec-type draft-mtp
+  - --spec-draft-n-max 2
+  - -ngld 99
+  - --kv-unified
+  - --reasoning-preserve
+  - --cache-idle-slots
