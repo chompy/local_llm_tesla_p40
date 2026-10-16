@@ -24,6 +24,10 @@ stop_session() {
 
 stop_session opencode
 stop_session llama-server
+# Legacy session from pre-362a659 stacks (llama-swap era); its orphaned
+# llama-server child is caught by the sweep below. Safe to drop this line
+# after the first restart on the new layout.
+stop_session llamaswap
 
 # Sweep for survivors (e.g. a server started outside the screen sessions).
 # Patterns are scoped to this repo's component paths (as they appear in cmdline).
