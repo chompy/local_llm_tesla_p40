@@ -1,9 +1,15 @@
 #!/usr/bin/env python3
 """
-Script to replace model configurations in a JSON file based on a YAML definition file.
+Build an OpenCode runtime config from a template plus a YAML definition file.
 
-Syncs each model's display name and token limits into the OpenCode config, so
-OpenCode reports the real context window instead of its built-in default:
+Starts from the repo's OpenCode config template (config/opencode.json.tmpl),
+syncs each model's display name and token limits into it, and writes the
+finished config to /tmp/opencode.json (or --output). start_opencode.sh then
+launches `opencode serve` with OPENCODE_CONFIG pointed at that file, so the
+template is the single source of truth instead of ~/.config/opencode/opencode.json.
+
+Token limits are synced so OpenCode reports the real context window instead of
+its built-in default:
 
 - context: from --ctx-size in the model's llama-server cmd
 - output:  from -n/--predict when present (the per-response max_tokens that gets
@@ -59,6 +65,11 @@ def extract_ctx_size(cmd: str, macros: Dict[str, Any]) -> Optional[int]:
 # 16K leaves room for long agentic responses/tool calls; override it by adding
 # -n <N> (or --predict) to the model's cmd in llama_swap.yaml.
 DEFAULT_OUTPUT_LIMIT = 16384
+
+# Where the finished config lands. start_opencode.sh launches `opencode serve`
+# with OPENCODE_CONFIG pointing at this file, so OpenCode uses it instead of
+# ~/.config/opencode/opencode.json. Regenerated fresh on every new session.
+DEFAULT_OUTPUT = '/tmp/opencode.json'
 
 
 def extract_output_limit(cmd: str, macros: Dict[str, Any]) -> Optional[int]:
@@ -127,13 +138,13 @@ def load_yaml_models(yaml_path: str) -> Dict[str, dict]:
 
 def update_json_models(json_path: str, yaml_models: Dict[str, dict], output_path: str = None) -> None:
     """
-    Update the models section in a JSON file with models from YAML.
+    Fill the models section of an OpenCode config template with models from YAML.
 
     Args:
-        json_path: Path to the JSON file
+        json_path: Path to the JSON template file (read-only source; never modified)
         yaml_models: Dictionary of model IDs and their OpenCode entries
             ({"name": ..., optionally "limit": {"context": N}})
-        output_path: Optional output path (if different from input)
+        output_path: Optional output path (default: overwrite input file)
     """
     # Load existing JSON
     with open(json_path, 'r', encoding='utf-8') as f:
@@ -155,61 +166,33 @@ def update_json_models(json_path: str, yaml_models: Dict[str, dict], output_path
     # Replace models (entries already shaped for OpenCode by load_yaml_models)
     json_data['provider']['llama-swap']['models'] = dict(yaml_models)
     
-    # Save the updated JSON
+    # Save the updated JSON (template stays untouched; output is a fresh artifact)
     output_file = output_path if output_path else json_path
     with open(output_file, 'w', encoding='utf-8') as f:
         json.dump(json_data, f, indent=2, ensure_ascii=False)
+        f.write('\n')
     
     print(f"Successfully updated {len(yaml_models)} models in {output_file}")
 
 
-def backup_json_file(json_path: str) -> Path:
-    """
-    Create a backup of the JSON file before modifying it.
-    
-    Args:
-        json_path: Path to the JSON file
-        
-    Returns:
-        Path to the backup file
-    """
-    json_file = Path(json_path)
-    backup_path = json_file.with_suffix('.backup')
-    
-    import shutil
-    shutil.copy2(json_path, backup_path)
-    print(f"Backup created at {backup_path}")
-    
-    return backup_path
-
-
 def main():
     parser = argparse.ArgumentParser(
-        description='Replace model configurations in a JSON file with models from a YAML file'
+        description='Build an OpenCode config from a template plus model definitions in a YAML file'
     )
     parser.add_argument(
         'yaml_file',
         help='Path to the YAML file containing model definitions'
     )
     parser.add_argument(
-        'json_file',
-        help='Path to the JSON file to update'
+        'template_file',
+        help=f'Path to the OpenCode config template (JSON) to start from'
     )
     parser.add_argument(
         '-o', '--output',
-        help='Output file path (default: overwrite input file)'
+        default=DEFAULT_OUTPUT,
+        help=f'Output file path (default: {DEFAULT_OUTPUT})'
     )
-    parser.add_argument(
-        '--no-backup',
-        action='store_true',
-        help='Skip creating a backup of the JSON file'
-    )
-    parser.add_argument(
-        '--pretty',
-        action='store_true',
-        help='Pretty print the display names'
-    )
-    
+
     args = parser.parse_args()
     
     # Validate input files
@@ -217,8 +200,8 @@ def main():
         print(f"Error: YAML file '{args.yaml_file}' not found", file=sys.stderr)
         sys.exit(1)
     
-    if not Path(args.json_file).exists():
-        print(f"Error: JSON file '{args.json_file}' not found", file=sys.stderr)
+    if not Path(args.template_file).exists():
+        print(f"Error: template file '{args.template_file}' not found", file=sys.stderr)
         sys.exit(1)
     
     try:
@@ -232,13 +215,10 @@ def main():
         
         print(f"Found {len(yaml_models)} models: {', '.join(yaml_models.keys())}")
         
-        # Create backup if requested
-        if not args.no_backup:
-            backup_json_file(args.json_file)
-        
-        # Update JSON file
-        print(f"Updating {args.json_file}...")
-        update_json_models(args.json_file, yaml_models, args.output)
+        # Fill the template and write the finished config (fresh every run —
+        # the template is a read-only source in the repo, so no backup needed)
+        print(f"Writing {args.output} from {args.template_file}...")
+        update_json_models(args.template_file, yaml_models, args.output)
         
         # Display summary
         print("\nUpdated models:")
