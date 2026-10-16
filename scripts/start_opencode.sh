@@ -11,6 +11,10 @@ SCREEN_SESSION_NAME="opencode"
 # from other OpenCode installs on this machine can leak in. Persists across
 # restarts; it is gitignored. Delete it for a clean slate.
 OC_HOME="$BASE_DIR/.runtime/opencode"
+# The generated runtime config lives inside the isolated home, at exactly where
+# OpenCode would look for its own opencode.json (passed explicitly as
+# OPENCODE_CONFIG too — belt and suspenders).
+OC_CONFIG="$OC_HOME/.config/opencode/opencode.json"
 
 if [ ! -f $EXEC_PATH ]; then
 	$SCRIPT_DIR/fetch_opencode.sh
@@ -24,10 +28,10 @@ if screen -list | grep -q "$SCREEN_SESSION_NAME"; then
   echo "> $SCREEN_SESSION_NAME session already running"
 else
   # Build the runtime config from the repo template + model.yaml. It lands in
-  # /tmp (regenerated on every fresh start) and is passed to opencode via
-  # OPENCODE_CONFIG, since `opencode serve` has no --config flag.
-  echo "> Building /tmp/opencode.json"
-  python3 $SCRIPT_DIR/generate_opencode_json.py $BASE_DIR/config/model.yaml $BASE_DIR/config/opencode.json.tmpl -o /tmp/opencode.json
+  # the isolated home (regenerated on every fresh start) and is passed to
+  # opencode via OPENCODE_CONFIG, since `opencode serve` has no --config flag.
+  echo "> Building $OC_CONFIG"
+  python3 $SCRIPT_DIR/generate_opencode_json.py $BASE_DIR/config/model.yaml $BASE_DIR/config/opencode.json.tmpl -o "$OC_CONFIG"
 
   # Launch with HOME pointed at the isolated state root (OC_HOME). OpenCode
   # resolves its whole home — config dir, cache, session database, logs — from
@@ -39,7 +43,7 @@ else
   # OC_HOME lazily; deleting it gives a clean slate.
   echo "> Starting new $SCREEN_SESSION_NAME session"
   mkdir -p "$OC_HOME"
-  screen -dmS "$SCREEN_SESSION_NAME" env HOME="$OC_HOME" OPENCODE_CONFIG=/tmp/opencode.json "$EXEC_PATH" serve --hostname 0.0.0.0 --port 4096
+  screen -dmS "$SCREEN_SESSION_NAME" env HOME="$OC_HOME" OPENCODE_CONFIG="$OC_CONFIG" "$EXEC_PATH" serve --hostname 0.0.0.0 --port 4096
 fi
 
 exit 0

@@ -4,7 +4,8 @@ Build an OpenCode runtime config from a template plus the model definition YAML.
 
 Starts from the repo's OpenCode config template (config/opencode.json.tmpl),
 syncs the model's display name, token limits and the provider baseURL into it,
-and writes the finished config to /tmp/opencode.json (or --output).
+and writes the finished config into the isolated OpenCode home at
+.runtime/opencode/.config/opencode/opencode.json (or --output).
 start_opencode.sh then launches `opencode serve` with OPENCODE_CONFIG pointed at
 that file, so the template + model.yaml are the single source of truth instead of
 ~/.config/opencode/opencode.json.
@@ -17,8 +18,9 @@ Synced from config/model.yaml:
            llama-server), otherwise DEFAULT_OUTPUT_LIMIT. Both limit fields are
            REQUIRED by OpenCode's schema — a limit with only `context` fails
            validation and makes the whole model disappear.
-- baseURL: http://localhost:<port>/v1, so the provider block tracks the port in
-           model.yaml instead of drifting from it.
+- baseURL: http://localhost:<port>, so the provider block tracks the port in
+           model.yaml instead of drifting from it (no /v1 suffix — see the note
+           where it is set).
 """
 
 import yaml
@@ -37,10 +39,13 @@ from typing import List, Optional
 # -n <N> (or --predict) to the args list in model.yaml.
 DEFAULT_OUTPUT_LIMIT = 16384
 
-# Where the finished config lands. start_opencode.sh launches `opencode serve`
-# with OPENCODE_CONFIG pointing at this file, so OpenCode uses it instead of
-# ~/.config/opencode/opencode.json. Regenerated fresh on every new session.
-DEFAULT_OUTPUT = '/tmp/opencode.json'
+# Where the finished config lands by default: inside the isolated OpenCode home
+# that start_opencode.sh re-roots via HOME (REPO_ROOT/.runtime/opencode is $OC_HOME),
+# at exactly where OpenCode would look for its own opencode.json. The script sits in
+# <repo>/scripts/, so the repo root is one level up from here. Regenerated fresh on
+# every new session; start_opencode.sh also passes this path as OPENCODE_CONFIG.
+REPO_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_OUTPUT = REPO_ROOT / '.runtime' / 'opencode' / '.config' / 'opencode' / 'opencode.json'
 
 # The provider entry in the template that this script fills in (id == the key
 # OpenCode shows as llama-server/<model_key>).
@@ -154,18 +159,24 @@ def update_json_model(json_path: str, model_key: str, port: int, entry: dict, ou
         print(f"Error: 'options.baseURL' not found under provider.{PROVIDER_KEY}", file=sys.stderr)
         sys.exit(1)
 
-    # Sync the endpoint and replace models (entry already shaped for OpenCode)
-    provider['options']['baseURL'] = f"http://localhost:{port}/v1"
+    # Sync the endpoint and replace models (entry already shaped for OpenCode).
+    # Note: no /v1 suffix — with this llama-server build the openai-compatible
+    # provider breaks when it is present.
+    provider['options']['baseURL'] = f"http://localhost:{port}"
     provider['models'] = {model_key: entry}
 
-    # Save the updated JSON (template stays untouched; output is a fresh artifact)
-    output_file = output_path if output_path else json_path
+    # Save the updated JSON (template stays untouched; output is a fresh artifact).
+    # The default location lives inside .runtime/, which may not exist yet on a
+    # first-ever start, so create the parent tree if needed.
+    output_file = Path(output_path) if output_path else Path(json_path)
+    if output_file != Path(json_path):
+        output_file.parent.mkdir(parents=True, exist_ok=True)
     with open(output_file, 'w', encoding='utf-8') as f:
         json.dump(json_data, f, indent=2, ensure_ascii=False)
         f.write('\n')
 
     print(f"Successfully updated model '{model_key}' in {output_file} "
-          f"(baseURL -> http://localhost:{port}/v1)")
+          f"(baseURL -> http://localhost:{port})")
 
 
 def main():

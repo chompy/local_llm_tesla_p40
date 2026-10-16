@@ -18,7 +18,7 @@ The stack serves `unsloth/Qwen3.8-27B-GGUF:Q4_K_M` (~17GB). Since only one model
 | CUDA toolkit with cuBLAS dev libraries (`nvcc`, `libcublas.so` + headers, e.g. Ubuntu's `nvidia-cuda-toolkit`) | required | llama.cpp CUDA build (`-DGGML_CUDA=ON`) |
 | GNU screen (`screen` package) | required | running both services in detached sessions |
 | Node.js + npm | required | installing OpenCode (`npm install @opencode/cli`, pinned to ^2.0.27 in `lib/opencode/package.json`) |
-| Python 3 + PyYAML (`pip install pyyaml`) | required | `scripts/generate_llama_server_cmd.py` (builds the llama-server command line from `config/model.yaml`) and `scripts/generate_opencode_json.py` (builds `/tmp/opencode.json` from the OpenCode config template and the model YAML) |
+| Python 3 + PyYAML (`pip install pyyaml`) | required | `scripts/generate_llama_server_cmd.py` (builds the llama-server command line from `config/model.yaml`) and `scripts/generate_opencode_json.py` (builds `.runtime/opencode/.config/opencode/opencode.json` from the OpenCode config template and the model YAML) |
 
 ## Usage
 
@@ -31,7 +31,7 @@ Run `start.sh` to start everything:
 On first run llama.cpp is cloned and compiled with CUDA, which takes a long time. After that it only rebuilds when the `llama-server` binary is missing. Both services then come up in detached screen sessions at the same time and the script returns immediately:
 
 - **llama-server** — the model server on port 5800, launched directly in its own session. The command line is built by `scripts/generate_llama_server_cmd.py` from `config/model.yaml` (binary + `--port` + `-hf <model>` + your args); see that file's comments for the P40-specific reasoning behind them.
-- **opencode** — OpenCode web server on 0.0.0.0:4096. On each fresh start its config is rebuilt from `config/opencode.json.tmpl` + `config/model.yaml` into `/tmp/opencode.json` (syncing the model's display name, token limits and the provider baseURL), and the server runs with `OPENCODE_CONFIG` pointed at that file. The instance also runs fully isolated from the rest of the system: it starts with `HOME` set to `.runtime/opencode/` (gitignored), so OpenCode's entire state — its own config directory, cache, session database and logs — lives under that tree and nothing in your real `~/.config/opencode` or any other OpenCode install on this machine is read or can leak in.
+- **opencode** — OpenCode web server on 0.0.0.0:4096. On each fresh start its config is rebuilt from `config/opencode.json.tmpl` + `config/model.yaml` into its own home at `.runtime/opencode/.config/opencode/opencode.json` (syncing the model's display name, token limits and the provider baseURL), which is also passed to it explicitly via `OPENCODE_CONFIG`. The instance also runs fully isolated from the rest of the system: it starts with `HOME` set to `.runtime/opencode/` (gitignored), so OpenCode's entire state — its own config directory, cache, session database and logs — lives under that tree and nothing in your real `~/.config/opencode` or any other OpenCode install on this machine is read or can leak in.
 
 Attach to a session with `screen -r llama-server` or `screen -r opencode`; detach again without killing it using Ctrl-A D. List sessions with `screen -ls`.
 
@@ -54,9 +54,9 @@ The individual scripts can also be run standalone; they are non-blocking and wil
 - `scripts/build_llama_cpp.sh`: clone/pull llama.cpp and build it with CUDA. Uses `-DGGML_CUDA_FORCE_MMQ=ON` so quantized GEMMs run on Pascal's DP4A units; do not add `-DGGML_CUDA_FORCE_CUBLAS` alongside it (it takes precedence in code and silently disables MMQ)
 - `scripts/fetch_opencode.sh`: install OpenCode via npm into `lib/opencode/`
 - `scripts/generate_llama_server_cmd.py`: read `config/model.yaml` and print the exact shell-ready command line to run (`llama-server --port <port> -hf <model>` + args, each token quoted so it survives `sh -c`)
-- `scripts/generate_opencode_json.py`: build an OpenCode runtime config from `config/opencode.json.tmpl` plus `config/model.yaml` — display name (from `model_key`), context limit (from `--ctx-size` in args) and per-response output limit (from `-n`/`--predict`, default 16384), plus the provider baseURL from `port`. Both limit fields are required by OpenCode's schema; without them OpenCode falls back to its built-in defaults. Output goes to `/tmp/opencode.json` by default (`-o` overrides)
+- `scripts/generate_opencode_json.py`: build an OpenCode runtime config from `config/opencode.json.tmpl` plus `config/model.yaml` — display name (from `model_key`), context limit (from `--ctx-size` in args) and per-response output limit (from `-n`/`--predict`, default 16384), plus the provider baseURL from `port`. Both limit fields are required by OpenCode's schema; without them OpenCode falls back to its built-in defaults. Output lands in the isolated OpenCode home (`.runtime/opencode/.config/opencode/opencode.json`) by default (`-o` overrides)
 - `scripts/start_llama_server.sh`: build the command from `config/model.yaml` and start llama-server inside a detached screen session if one doesn't already exist
-- `scripts/start_opencode.sh`: build `/tmp/opencode.json` from the template, then start the opencode web server in a detached screen session if one doesn't already exist — launched with `OPENCODE_CONFIG=/tmp/opencode.json` and an isolated `HOME` (`.runtime/opencode/`) so it never touches your real OpenCode state
+- `scripts/start_opencode.sh`: build the runtime config from the template into `.runtime/opencode/.config/opencode/opencode.json`, then start the opencode web server in a detached screen session if one doesn't already exist — launched with that file as an explicit `OPENCODE_CONFIG` plus an isolated `HOME` (`.runtime/opencode/`) so it never touches your real OpenCode state
 
 ## Configuration
 
