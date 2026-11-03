@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Stop the llama-server and opencode services started by start.sh (and any
-# leftover processes from them), in reverse order of startup.
+# Stop the llama-server and opencode services started by start_single.sh or
+# start_multi.sh (and any leftover processes from them), in reverse order of
+# startup. Works for both modes — multi mode adds no extra local sessions.
 
 BASE_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-Build the llama-server command line from config/model.yaml.
+Build the llama-server command line from a mode's model YAML
+(config/model_single.yaml / config/model_multi.yaml).
 
 Usage: generate_llama_server_cmd.py <model_yaml> [binary]
 

@@ -15,6 +15,10 @@ OC_HOME="$BASE_DIR/.runtime/opencode"
 # OpenCode would look for its own opencode.json (passed explicitly as
 # OPENCODE_CONFIG too — belt and suspenders).
 OC_CONFIG="$OC_HOME/.config/opencode/opencode.json"
+# Model definition to build the provider entry from: model_single.yaml by
+# default, or model_multi.yaml when start_multi.sh passes it (so this instance
+# sees the 96K per-slot context limit in multi-agent mode).
+MODEL_YAML="${1:-$BASE_DIR/config/model_single.yaml}"
 
 if [ ! -f $EXEC_PATH ]; then
 	$SCRIPT_DIR/fetch_opencode.sh
@@ -27,11 +31,11 @@ cd "$BASE_DIR"
 if screen -list | grep -q "$SCREEN_SESSION_NAME"; then
   echo "> $SCREEN_SESSION_NAME session already running"
 else
-  # Build the runtime config from the repo template + model.yaml. It lands in
+  # Build the runtime config from the repo template + model YAML. It lands in
   # the isolated home (regenerated on every fresh start) and is passed to
   # opencode via OPENCODE_CONFIG, since `opencode serve` has no --config flag.
   echo "> Building $OC_CONFIG"
-  python3 $SCRIPT_DIR/generate_opencode_json.py $BASE_DIR/config/model.yaml $BASE_DIR/config/opencode.json.tmpl -o "$OC_CONFIG"
+  python3 $SCRIPT_DIR/generate_opencode_json.py "$MODEL_YAML" $BASE_DIR/config/opencode.json.tmpl -o "$OC_CONFIG"
 
   # Launch with HOME pointed at the isolated state root (OC_HOME). OpenCode
   # resolves its whole home — config dir, cache, session database, logs — from

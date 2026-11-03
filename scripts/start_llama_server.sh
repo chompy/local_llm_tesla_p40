@@ -4,6 +4,9 @@ SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 BASE_DIR="$SCRIPT_DIR/.."
 LLAMA_SERVER_BIN="$BASE_DIR/lib/llama_cpp/build/bin/llama-server"
 SCREEN_SESSION_NAME="llama-server"
+# Model definition to launch from: model_single.yaml (full 131K ctx) by default,
+# or model_multi.yaml (-np 2, 96K per slot) when start_multi.sh passes it.
+MODEL_YAML="${1:-$BASE_DIR/config/model_single.yaml}"
 
 cd "$BASE_DIR"
 
@@ -16,10 +19,10 @@ fi
 if screen -list | grep -q "$SCREEN_SESSION_NAME"; then
   echo "> $SCREEN_SESSION_NAME session already running"
 else
-  # Build the command from config/model.yaml: binary + --port + -hf + args,
+  # Build the command from the model YAML: binary + --port + -hf + args,
   # each token shell-quoted so it survives `sh -c`. The server runs with the
   # repo root as its working directory (args may use relative paths).
-  CMD=$(python3 $SCRIPT_DIR/generate_llama_server_cmd.py $BASE_DIR/config/model.yaml "$LLAMA_SERVER_BIN") || exit 1
+  CMD=$(python3 $SCRIPT_DIR/generate_llama_server_cmd.py "$MODEL_YAML" "$LLAMA_SERVER_BIN") || exit 1
   echo "> Command: $CMD"
 
   echo "> Starting new $SCREEN_SESSION_NAME session"

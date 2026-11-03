@@ -7,10 +7,10 @@ syncs the model's display name, token limits and the provider baseURL into it,
 and writes the finished config into the isolated OpenCode home at
 .runtime/opencode/.config/opencode/opencode.json (or --output).
 start_opencode.sh then launches `opencode serve` with OPENCODE_CONFIG pointed at
-that file, so the template + model.yaml are the single source of truth instead of
-~/.config/opencode/opencode.json.
+that file, so the template + a mode's model YAML are the single source of truth
+instead of ~/.config/opencode/opencode.json.
 
-Synced from config/model.yaml:
+Synced from the mode's model YAML (model_single.yaml / model_multi.yaml):
 - name:    display name derived from model_key (title-cased)
 - context: from --ctx-size in args — OpenCode reports the real window instead of
            its built-in default
@@ -19,7 +19,7 @@ Synced from config/model.yaml:
            REQUIRED by OpenCode's schema — a limit with only `context` fails
            validation and makes the whole model disappear.
 - baseURL: http://localhost:<port>, so the provider block tracks the port in
-           model.yaml instead of drifting from it (no /v1 suffix — see the note
+           the model YAML instead of drifting from it (no /v1 suffix — see the note
            where it is set).
 """
 
@@ -75,10 +75,11 @@ def extract_flag_value(tokens: List[str], names: List[str]) -> Optional[int]:
 
 def load_model(yaml_path: str):
     """
-    Load the single model definition from model.yaml.
+    Load the single model definition from a mode's model YAML.
 
     Args:
-        yaml_path: Path to config/model.yaml
+        yaml_path: Path to the model YAML (config/model_single.yaml or
+            config/model_multi.yaml)
 
     Returns:
         (model_key, port, entry) where entry is the OpenCode model dict
@@ -185,7 +186,7 @@ def main():
     )
     parser.add_argument(
         'yaml_file',
-        help='Path to the model definition YAML file (config/model.yaml)'
+        help="Path to the model definition YAML file (e.g. config/model_single.yaml)"
     )
     parser.add_argument(
         'template_file',
