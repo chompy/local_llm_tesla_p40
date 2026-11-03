@@ -21,8 +21,5 @@ fi
 
 echo "> Starting build"
 cd $LLAMA_PATH
-# FORCE_MMQ selects the DP4A quantized-GEMM kernels, the fast path on Pascal (sm_61).
-# Do NOT also set GGML_CUDA_FORCE_CUBLAS: it takes precedence in code and silently
-# disables MMQ, falling back to slower cuBLAS fp32 GEMMs.
-cmake -B build -DGGML_CUDA=ON -DGGML_CUDA_FORCE_MMQ=ON
+cmake -B build -DGGML_CUDA=ON
 cmake --build build --config Release --parallel $(nproc)
