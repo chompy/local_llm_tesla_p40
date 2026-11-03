@@ -14,10 +14,10 @@ hf_model: "mradermacher/Swift-1.5-Qwen3.8-27b-i1-GGUF:Q4_K_M"
 port: 5800                                  # llama-server listens here
 
 # Everything appended after `--port <port> -hf <hf_model>` — verbatim, in order.
-# Tuned for a Tesla P40 (sm_61, DP4A, no tensor cores) with 24GB VRAM.
-# Q4_K_M weights (~17GB) + q4_0 KV cache at 131K ctx fit in the card: Qwen3.8 is a
-# hybrid SSM/full-attention model (only ~1/4 of layers hold KV), so the cache stays
-# around ~2.5GB even at 131072 tokens. Verified live: server idles at ~21GiB used.
+# Tuned for a Tesla V100 (sm_70 / Volta, FP16 tensor cores) with 32GB VRAM.
+# Q4_K_M weights (~17GB) + f16 KV cache at 131K ctx fit the card comfortably:
+# Swift 1.5 Qwen3.8 is a hybrid SSM/full-attention model (only ~1/4 of layers hold
+# KV), so even unquantized KV stays small — verified live: ~27GiB used under load.
 # MTP speculative decoding (--spec-type draft-mtp) works because the GGUF ships its
 # own nextn layer — no separate draft model needed, and it saves full forward passes.
 args:
@@ -25,11 +25,10 @@ args:
   - -ngl 999
   - -fa on
   - -b 2048
-  - -ub 2048
+  - -ub 8192
   - -ctk f16
   - -ctv f16
   - -np 1
-  - -mg 0
   - --host 0.0.0.0
   - --temp 0.7
   - --top-p 0.9
@@ -39,11 +38,10 @@ args:
   - --jinja
   - --chat-template-file config/chat_template.jinja
   - --spec-type draft-mtp
-  # A/B tested on this P40 (scripts/bench_draft_max.sh, ~6K prefill, temp=0):
-  # tok/s by value -> 2: 20.1, 3: 20.3, 5: 17.3, 7: 15.0 — 3 is optimal here.
-  - --spec-draft-n-max 3
+  # A/B tested on this V100 (scripts/bench_draft_max.sh, ~6K prefill, temp=0):
+  # tok/s by value -> 2: 48.13, 3: 48.66, 5: 45.95, 7: 53.06 — 7 is optimal here.
+  - --spec-draft-n-max 7
   - -ngld 99
   - --kv-unified
   - --reasoning-preserve
   - --cache-idle-slots
-  - --cache-prompt
