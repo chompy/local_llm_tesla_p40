@@ -131,7 +131,8 @@ def load_model(yaml_path: str):
     return model_key, port, entry
 
 
-def update_json_model(json_path: str, model_key: str, port: int, entry: dict, output_path: str = None) -> None:
+def update_json_model(json_path: str, model_key: str, port: int, entry: dict,
+                      output_path: str = None, host: str = 'localhost') -> None:
     """
     Fill the provider section of an OpenCode config template with the model from YAML.
 
@@ -141,6 +142,8 @@ def update_json_model(json_path: str, model_key: str, port: int, entry: dict, ou
         port: llama-server port — becomes options.baseURL so it tracks model.yaml
         entry: OpenCode model dict ({"name": ..., optionally "limit": {...}})
         output_path: Optional output path (default: overwrite input file)
+        host: Host for the provider baseURL. 'localhost' for the local instance;
+            pass this machine's LAN address to build a config for remote clients
     """
     # Load existing JSON
     with open(json_path, 'r', encoding='utf-8') as f:
@@ -163,7 +166,7 @@ def update_json_model(json_path: str, model_key: str, port: int, entry: dict, ou
     # Sync the endpoint and replace models (entry already shaped for OpenCode).
     # Note: no /v1 suffix — with this llama-server build the openai-compatible
     # provider breaks when it is present.
-    provider['options']['baseURL'] = f"http://localhost:{port}"
+    provider['options']['baseURL'] = f"http://{host}:{port}"
     provider['models'] = {model_key: entry}
 
     # Save the updated JSON (template stays untouched; output is a fresh artifact).
@@ -177,7 +180,7 @@ def update_json_model(json_path: str, model_key: str, port: int, entry: dict, ou
         f.write('\n')
 
     print(f"Successfully updated model '{model_key}' in {output_file} "
-          f"(baseURL -> http://localhost:{port})")
+          f"(baseURL -> http://{host}:{port})")
 
 
 def main():
@@ -196,6 +199,12 @@ def main():
         '-o', '--output',
         default=DEFAULT_OUTPUT,
         help=f'Output file path (default: {DEFAULT_OUTPUT})'
+    )
+    parser.add_argument(
+        '--host',
+        default='localhost',
+        help="Host for the provider baseURL (default: localhost). Pass this "
+             "machine's LAN address to build a config for remote clients"
     )
 
     args = parser.parse_args()
@@ -218,7 +227,7 @@ def main():
         # Fill the template and write the finished config (fresh every run —
         # the template is a read-only source in the repo, so no backup needed)
         print(f"Writing {args.output} from {args.template_file}...")
-        update_json_model(args.template_file, model_key, port, entry, args.output)
+        update_json_model(args.template_file, model_key, port, entry, args.output, args.host)
 
         # Display summary
         limit = entry.get('limit')

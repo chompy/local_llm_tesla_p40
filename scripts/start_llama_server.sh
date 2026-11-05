@@ -27,6 +27,20 @@ else
 
   echo "> Starting new $SCREEN_SESSION_NAME session"
   screen -dmS "$SCREEN_SESSION_NAME" sh -c "cd '$BASE_DIR' && exec $CMD"
+
+  # Also drop a ready-to-copy config for remote OpenCode clients at the repo
+  # root: same provider entry, but baseURL pointing at this machine's LAN
+  # address (first 192.168.x.x from ifconfig) instead of localhost. A remote
+  # client copies opencode.json into its own OpenCode config location. Skipped
+  # with a warning when no such address exists (not on the LAN right now).
+  LAN_IP=$(ifconfig -a 2>/dev/null | awk '$1=="inet" || $1=="inet:" {ip=$2; if (ip ~ /^192\.168\./) {print ip; exit}}')
+  if [ -n "$LAN_IP" ]; then
+    echo "> Building LAN config opencode.json for remote clients (host $LAN_IP)"
+    python3 $SCRIPT_DIR/generate_opencode_json.py "$MODEL_YAML" $BASE_DIR/config/opencode.json.tmpl --host "$LAN_IP" -o "$BASE_DIR/opencode.json" \
+      || echo "> WARNING: failed to build LAN opencode.json (server started anyway)"
+  else
+    echo "> No 192.168.x.x address found — skipping LAN opencode.json"
+  fi
 fi
 
 exit 0

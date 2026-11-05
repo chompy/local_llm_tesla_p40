@@ -1,3 +1,6 @@
 /lib
 __pycache__/
 .runtime/
+
+# Generated LAN client config (written by start_llama_server.sh on every server start)
+/opencode.json
