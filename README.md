@@ -7,7 +7,7 @@ This repo contains scripts and configuration files I use to run LLMs locally for
 
 My setup has a Nvidia Tesla V100 (32GB VRAM, sm_70 / Volta — FP16 tensor cores) GPU with 32GB of system memory.
 
-The stack serves `mradermacher/Swift-1.5-Qwen3.8-27b-i1-GGUF:Q4_K_M` (~17GB). Since only one model is used there is no multiplexer in front of the server (llama-swap was dropped for that reason); everything about the launch lives in `config/models/`: one YAML per serving mode (`model_single.yaml` — one agent, full 131K context; `model_multi.yaml` — two concurrent agents on parallel slots), each merged on top of a shared `_global.yaml`. The args are tuned for the V100 and verified to fit: Swift 1.5 Qwen3.8 is a hybrid SSM/full-attention model (only ~1/4 of layers hold KV), so even an f16 KV cache at 131K context keeps the single-agent server around ~27GiB under load — comfortable headroom on the card's 32GB alongside the weights. Speculative decoding uses the MTP layer shipped inside the GGUF itself (`--spec-type draft-mtp`), no separate draft model needed; the optimal `--spec-draft-n-max` for this GPU and context size was found with `scripts/bench_draft_max.sh`.
+The stack serves `mradermacher/Swift-1.5-Qwen3.8-27b-i1-GGUF:Q4_K_M` (~17GB). Since only one model is used there is no multiplexer in front of the server (llama-swap was dropped for that reason); everything about the launch lives in `config/models/`: one YAML per serving mode (`single.yaml` — one agent, full 131K context; `multi.yaml` — two concurrent agents on parallel slots), each merged on top of a shared `_global.yaml`. The args are tuned for the V100 and verified to fit: Swift 1.5 Qwen3.8 is a hybrid SSM/full-attention model (only ~1/4 of layers hold KV), so even an f16 KV cache at 131K context keeps the single-agent server around ~27GiB under load — comfortable headroom on the card's 32GB alongside the weights. Speculative decoding uses the MTP layer shipped inside the GGUF itself (`--spec-type draft-mtp`), no separate draft model needed; the optimal `--spec-draft-n-max` for this GPU and context size was found with `scripts/bench_draft_max.sh`.
 
 ## Dependencies
 
@@ -26,7 +26,7 @@ There are two serving modes, both launched from the repo root through one entry 
 
 ```sh
 ./start.sh               # pick a model config interactively
-./start.sh model_single  # or name it directly (config/models/model_single.yaml)
+./start.sh single  # or name it directly (config/models/single.yaml)
 ```
 
 With no argument, `start.sh` lists every YAML in `config/models/` (files starting with `_`, like `_global.yaml`, are skipped) and prompts for one — a menu number or the config's name both work. An unknown name as an argument is rejected with the list of available configs.
@@ -38,17 +38,17 @@ On first run llama.cpp is cloned and compiled with CUDA, which takes a long time
 
 ### Model configs
 
-**`config/models/model_single.yaml`** — single agent: full 131K context with an f16 KV cache; the everyday setup.
+**`config/models/single.yaml`** — single agent: full 131K context with an f16 KV cache; the everyday setup.
 
-**`config/models/model_multi.yaml`** — two agents: one llama-server with **two parallel slots** (`-np 2`, 96K context per slot, q8_0 KV cache) plus the same local OpenCode instance on :4096. The second agent runs remotely from another machine and talks to the same llama-server directly over the network (it binds `0.0.0.0:5800`, OpenAI-compatible API). Both agents generate concurrently; while both are active each gets roughly half the single-agent token rate.
+**`config/models/multi.yaml`** — two agents: one llama-server with **two parallel slots** (`-np 2`, 96K context per slot, q8_0 KV cache) plus the same local OpenCode instance on :4096. The second agent runs remotely from another machine and talks to the same llama-server directly over the network (it binds `0.0.0.0:5800`, OpenAI-compatible API). Both agents generate concurrently; while both are active each gets roughly half the single-agent token rate.
 
 ```sh
-./stop.sh && ./start.sh model_multi
+./stop.sh && ./start.sh multi
 ```
 
 Every time the model server is started, `scripts/start_llama_server.sh` also writes a ready-to-copy **`opencode.json` for remote clients** into the repo root — the same provider entry, but with the baseURL pointing at this machine's LAN address (the first `192.168.x.x` found by `ifconfig`) instead of localhost. Copy that file into the remote machine's OpenCode config location and it can connect.
 
-llama.cpp's slot model is what makes a separate serving engine unnecessary here: two slots give two independent KV caches and concurrent decoding behind the same API OpenCode already speaks, and MTP speculative decoding keeps working per-slot (an earlier vLLM prototype had to drop its draft model entirely just to fit). The 96K/q8_0 budget in `config/models/model_multi.yaml` is what fits two conversations plus weights on the 32GB card — f16 KV at two slots would not.
+llama.cpp's slot model is what makes a separate serving engine unnecessary here: two slots give two independent KV caches and concurrent decoding behind the same API OpenCode already speaks, and MTP speculative decoding keeps working per-slot (an earlier vLLM prototype had to drop its draft model entirely just to fit). The 96K/q8_0 budget in `config/models/multi.yaml` is what fits two conversations plus weights on the 32GB card — f16 KV at two slots would not.
 
 Attach to a session with `screen -r llama-server` or `screen -r opencode`; detach again without killing it using Ctrl-A D. List sessions with `screen -ls`.
 
@@ -73,7 +73,7 @@ Note that running `start.sh` while *any* model server is up refuses to start —
 
 - `start.sh [model_name]`: build llama.cpp if needed, then start the stack (llama-server + opencode) from the selected `config/models/*.yaml`. With no argument it prompts for a model config interactively; with one it takes the base name of a file in `config/models/`, with or without `.yaml`
 - `scripts/build_llama_cpp.sh`: clone/pull llama.cpp and build it with CUDA (`-DGGML_CUDA=ON`). No Pascal-specific flags: on Volta the tensor-core FP16 kernels are the fast path, so `GGML_CUDA_FORCE_MMQ` (DP4A) is deliberately not set
-- `scripts/bench_draft_max.sh`: A/B benchmark runner for `--spec-draft-n-max`. Stops the stack and waits for VRAM to release, then cycles bare llama-server instances per draft value (args from `config/models/model_single.yaml`, only `--spec-draft-n-max` swapped), benchmarks each with a fixed prompt, and restores the single-agent stack via `./start.sh model_single` — even on Ctrl-C. Run it from a separate terminal while OpenCode is idle: `./scripts/bench_draft_max.sh [value ...]`
+- `scripts/bench_draft_max.sh`: A/B benchmark runner for `--spec-draft-n-max`. Stops the stack and waits for VRAM to release, then cycles bare llama-server instances per draft value (args from `config/models/single.yaml`, only `--spec-draft-n-max` swapped), benchmarks each with a fixed prompt, and restores the single-agent stack via `./start.sh single` — even on Ctrl-C. Run it from a separate terminal while OpenCode is idle: `./scripts/bench_draft_max.sh [value ...]`
 - `scripts/fan_guard.sh`: automatic GPU fan control. Watches utilization and runs `~/bin/set_fan 128` as soon as the GPU is above 0%, then `set_fan 0` once it has been idle for 5 straight minutes (any usage spike in between cancels the shutdown). Runs in a detached `fan-guard` screen session: start with `./scripts/fan_guard.sh` (idempotent), watch its log with `screen -r fan-guard`
 - `scripts/fetch_opencode.sh`: install OpenCode via npm into `lib/opencode/`
 - `scripts/model_config.py`: shared loader both generators use — merges a model YAML's `args` mapping on top of its directory's `_global.yaml` (model keys override globals, new ones append; a null value is a bare flag) and validates the fields
@@ -85,8 +85,8 @@ Note that running `start.sh` while *any* model server is up refuses to start —
 ## Configuration
 
 - `config/models/_global.yaml` — settings shared by every model config: the server `port` plus the args all modes launch with. A model's YAML is merged on top of it, so anything a mode does differently only has to live in that file
-- `config/models/model_single.yaml` — single-agent mode: what is served (`model_key`, `-hf` repo) and the args that differ from `_global.yaml` (full 131K ctx, f16 KV; see the comments in the file for the V100-specific reasoning). Read by both generator scripts via `start.sh`
-- `config/models/model_multi.yaml` — two-agent mode: same model, launched with `-np 2`, 96K context per slot and q8_0 KV so two concurrent conversations fit the card. Read by both generator scripts via `start.sh`
+- `config/models/single.yaml` — single-agent mode: what is served (`model_key`, `-hf` repo) and the args that differ from `_global.yaml` (full 131K ctx, f16 KV; see the comments in the file for the V100-specific reasoning). Read by both generator scripts via `start.sh`
+- `config/models/multi.yaml` — two-agent mode: same model, launched with `-np 2`, 96K context per slot and q8_0 KV so two concurrent conversations fit the card. Read by both generator scripts via `start.sh`
 - The `args` block in these files is a **mapping** of arg name to value (not a list) — that's what makes the `_global.yaml` merge possible; a null value (`~`) means a bare flag with no argument, and values YAML 1.1 would misparse as booleans (notably unquoted `on`) must be quoted
 - `config/chat_template.jinja` — chat template passed to llama-server via `--chat-template-file` together with `--jinja`
 - `config/opencode.json.tmpl` — the OpenCode config template (schema, permissions, disabled providers, plugin, compaction, and the local llama-server provider entry). The model and its baseURL are filled in from the selected model YAML at startup; edit this file to change any other OpenCode setting

@@ -10,10 +10,10 @@
 #   1. Stops the whole stack (stop.sh) and waits until the GPU is actually idle
 #      (VRAM released), so nothing interferes with the measurements.
 #   2. For each draft value: launches llama-server on port 5800 exactly as
-#      config/models/model_single.yaml defines it (only --spec-draft-n-max changed), waits
+#      config/models/single.yaml defines it (only --spec-draft-n-max changed), waits
 #      for model load, sends one warmup request + three measured requests
 #      (fixed ~6K-token prompt, temperature=0, max_tokens=100).
-#   3. Restores the canonical single-agent stack with ./start.sh model_single and
+#   3. Restores the canonical single-agent stack with ./start.sh single and
 #      prints a results table.
 #
 # Expected duration: ~15-20 minutes for four values.
@@ -120,7 +120,7 @@ kill_test_server() { # $1 = pid
 }
 
 cmd_for() { # $1 = draft value; port stays 5800 (what opencode points at)
-	python3 "$BASE/scripts/generate_llama_server_cmd.py" "$BASE/config/models/model_single.yaml" "$BIN" \
+	python3 "$BASE/scripts/generate_llama_server_cmd.py" "$BASE/config/models/single.yaml" "$BIN" \
 		| sed "s/--spec-draft-n-max [0-9]*/--spec-draft-n-max $1/"
 }
 
@@ -191,7 +191,7 @@ gpu_idle() { # returns 0 once VRAM usage is below the idle threshold
 restore() {
 	[ "${RESTORED:-0}" -eq 1 ] && return 0
 	RESTORED=1
-	banner "restoring the stack with ./start.sh model_single"
+	banner "restoring the stack with ./start.sh single"
 	local pids zsp i
 	pids=$(pgrep -f 'llama_cpp/build/bin/llama-server' || true)
 	if [ -n "$pids" ]; then
@@ -208,7 +208,7 @@ restore() {
 		screen -S "$zsp" -X quit 2>/dev/null; sleep 1
 	fi
 	wait_port_free || { log "FATAL: port busy, cannot restore"; return 1; }
-	cd "$BASE" && ./start.sh model_single || { log "FATAL: ./start.sh model_single failed — run it manually"; return 1; }
+	cd "$BASE" && ./start.sh single || { log "FATAL: ./start.sh single failed — run it manually"; return 1; }
 	i=0
 	while [ "$i" -lt 300 ]; do
 		if curl -s --max-time 3 "http://127.0.0.1:$PORT/v1/models" | grep -q '"data"'; then
@@ -216,7 +216,7 @@ restore() {
 		fi
 		sleep 3; i=$((i+3))
 	done
-	log "FATAL: server not ready after ./start.sh model_single (check screen sessions)"
+	log "FATAL: server not ready after ./start.sh single (check screen sessions)"
 	return 1
 }
 
@@ -290,7 +290,7 @@ done
 # ---------- report (printed before the EXIT trap restores the stack) ----------
 
 {
-	echo "# --spec-draft-n-max A/B results ($(basename "$BIN") model from config/models/model_single.yaml)"
+	echo "# --spec-draft-n-max A/B results ($(basename "$BIN") model from config/models/single.yaml)"
 	echo
 	echo "- temperature=0, max_tokens=100, prefill ~6K tokens, 3 measured runs after 1 warmup"
 	echo "- last column is the median tok/s; per-value server logs in $WORK/"

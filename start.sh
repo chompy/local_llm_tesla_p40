@@ -4,7 +4,7 @@
 #
 # Usage: ./start.sh [model_name]
 #   model_name — base name of a file in config/models/, with or without .yaml
-#                (e.g. "model_single"). With no argument, pick one interactively
+#                (e.g. "single"). With no argument, pick one interactively
 #                from a menu instead.
 
 BASE_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )

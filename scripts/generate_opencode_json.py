@@ -58,7 +58,7 @@ def load_model(yaml_path: str):
     Load one model definition (merged with its _global.yaml) for OpenCode.
 
     Args:
-        yaml_path: Path to the model YAML (config/models/model_*.yaml)
+        yaml_path: Path to the model YAML (config/models/*.yaml)
 
     Returns:
         (model_key, port, entry) where entry is the OpenCode model dict
@@ -160,7 +160,7 @@ def main():
     )
     parser.add_argument(
         'yaml_file',
-        help="Path to the model definition YAML file (e.g. config/models/model_single.yaml)"
+        help="Path to the model definition YAML file (e.g. config/models/single.yaml)"
     )
     parser.add_argument(
         'template_file',

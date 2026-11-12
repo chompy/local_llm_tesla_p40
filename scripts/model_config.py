@@ -1,7 +1,7 @@
 """
 Shared loader for model definitions in config/models/.
 
-A model definition is one YAML file (e.g. config/models/model_single.yaml) that
+A model definition is one YAML file (e.g. config/models/single.yaml) that
 is merged on top of the directory's _global.yaml when present:
 
 - `args` is a MAPPING of arg name -> value in both files (not a list). The merge
@@ -65,7 +65,7 @@ def load_model_config(model_path: str) -> dict:
     Load one model definition with its global settings merged in.
 
     Args:
-        model_path: Path to the model YAML (config/models/model_*.yaml)
+        model_path: Path to the model YAML (config/models/*.yaml)
 
     Returns:
         {'model_key': str, 'hf_model': str, 'port': int,

@@ -1,6 +1,6 @@
 # Global settings shared by EVERY model config in this directory.
 #
-# Each model_*.yaml here is merged on top of this file: its `args` entries are
+# Each *.yaml here is merged on top of this file: its `args` entries are
 # added to (or override, when the key repeats) the ones below, and any other
 # field it defines (e.g. port) overrides the one here. Files starting with `_`
 # are not model configs — start.sh skips them in its menu.

@@ -4,11 +4,11 @@ SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 BASE_DIR="$SCRIPT_DIR/.."
 LLAMA_SERVER_BIN="$BASE_DIR/lib/llama_cpp/build/bin/llama-server"
 SCREEN_SESSION_NAME="llama-server"
-# Model definition to launch from (required): one of config/models/model_*.yaml,
+# Model definition to launch from (required): one of config/models/*.yaml,
 # passed by start.sh. No default on purpose — with several models available, a
 # silent pick would be a footgun.
 if [ -z "${1:-}" ]; then
-  echo "Usage: $0 <model_yaml>   (e.g. $BASE_DIR/config/models/model_single.yaml)" >&2
+  echo "Usage: $0 <model_yaml>   (e.g. $BASE_DIR/config/models/single.yaml)" >&2
   exit 1
 fi
 MODEL_YAML="$1"

@@ -1,12 +1,12 @@
 # Multi-agent mode: two concurrent OpenCode agents served by ONE llama-server
 # with two parallel slots (-np 2). The single-agent setup (full 131K context,
-# f16 KV) lives in model_single.yaml.
+# f16 KV) lives in single.yaml.
 #
 # Everything here is merged on top of _global.yaml (same directory): shared args
 # and port come from there; only what differs per mode belongs in this file.
 # `args` is a mapping arg name -> value (~ = bare flag), not a list, so the merge works.
 #
-# Read by the same generator scripts as model_single.yaml:
+# Read by the same generator scripts as single.yaml:
 # - scripts/generate_llama_server_cmd.py — builds the exact command line
 #   start_llama_server.sh runs (binary + --port + -hf + merged args)
 # - scripts/generate_opencode_json.py    — syncs the model into OpenCode's

@@ -1,5 +1,5 @@
 # Single-agent mode: one llama-server, full 131K context, f16 KV cache.
-# The everyday setup — the two-concurrent-agents variant lives in model_multi.yaml.
+# The everyday setup — the two-concurrent-agents variant lives in multi.yaml.
 #
 # Everything here is merged on top of _global.yaml (same directory): shared args
 # and port come from there; only what differs per mode belongs in this file.
