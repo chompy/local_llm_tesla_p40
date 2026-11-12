@@ -11,7 +11,7 @@
 #   limit from -n/--predict if present (else 16384), and the provider baseURL
 #   from port
 
-model_key: "mradermacher-Swift-1.5-Qwen3.8-27b-i1-GGUF-Q4KM"
+model_key: "Swift-1.5-Qwen3.8-27b:Q4KM"
 hf_model: "mradermacher/Swift-1.5-Qwen3.8-27b-i1-GGUF:Q4_K_M"
 port: 5800                                  # both OpenCode instances point here
 

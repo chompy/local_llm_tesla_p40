@@ -48,8 +48,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_OUTPUT = REPO_ROOT / '.runtime' / 'opencode' / '.config' / 'opencode' / 'opencode.json'
 
 # The provider entry in the template that this script fills in (id == the key
-# OpenCode shows as llama-server/<model_key>).
-PROVIDER_KEY = 'llama-server'
+# OpenCode shows as local/<model_key>).
+PROVIDER_KEY = 'local'
 
 
 def extract_flag_value(tokens: List[str], names: List[str]) -> Optional[int]:
