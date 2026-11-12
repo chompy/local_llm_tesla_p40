@@ -51,7 +51,22 @@ else
   # OC_HOME lazily; deleting it gives a clean slate.
   echo "> Starting new $SCREEN_SESSION_NAME session"
   mkdir -p "$OC_HOME"
-  screen -dmS "$SCREEN_SESSION_NAME" env HOME="$OC_HOME" OPENCODE_CONFIG="$OC_CONFIG" "$EXEC_PATH" serve --hostname 0.0.0.0 --port 4096
+
+  # Web app password (Basic auth; the username is always "opencode"). opencode
+  # serve has no option to disable auth, but a fixed known password reduces it to
+  # a one-time browser prompt — browsers remember Basic auth credentials per
+  # origin. Generated once into the isolated home (gitignored) and reused on every
+  # restart; changing it would sign all existing browser sessions out. An
+  # OPENCODE_PASSWORD in the environment overrides the stored value.
+  SERVER_PW_FILE="$OC_HOME/.server_password"
+  if [ -z "${OPENCODE_PASSWORD:-}" ] && [ ! -f "$SERVER_PW_FILE" ]; then
+    head -c 16 /dev/urandom | base64 | tr -d '/+=' | head -c 20 > "$SERVER_PW_FILE"
+    chmod 600 "$SERVER_PW_FILE"
+  fi
+  SERVER_PW="${OPENCODE_PASSWORD:-$(cat "$SERVER_PW_FILE" 2>/dev/null)}"
+  echo "> Web app password: $SERVER_PW   (stored in $SERVER_PW_FILE)"
+
+  screen -dmS "$SCREEN_SESSION_NAME" env HOME="$OC_HOME" OPENCODE_CONFIG="$OC_CONFIG" OPENCODE_PASSWORD="$SERVER_PW" "$EXEC_PATH" serve --hostname 0.0.0.0 --port 4096
 fi
 
 exit 0
