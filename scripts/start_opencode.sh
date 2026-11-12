@@ -15,10 +15,14 @@ OC_HOME="$BASE_DIR/.runtime/opencode"
 # OpenCode would look for its own opencode.json (passed explicitly as
 # OPENCODE_CONFIG too — belt and suspenders).
 OC_CONFIG="$OC_HOME/.config/opencode/opencode.json"
-# Model definition to build the provider entry from: model_single.yaml by
-# default, or model_multi.yaml when start_multi.sh passes it (so this instance
-# sees the 96K per-slot context limit in multi-agent mode).
-MODEL_YAML="${1:-$BASE_DIR/config/model_single.yaml}"
+# Model definition to build the provider entry from (required): one of
+# config/models/model_*.yaml, passed by start.sh (so this instance sees the
+# context limit of whichever model is serving). No default on purpose.
+if [ -z "${1:-}" ]; then
+	echo "Usage: $0 <model_yaml>   (e.g. $BASE_DIR/config/models/model_single.yaml)" >&2
+	exit 1
+fi
+MODEL_YAML="$1"
 
 if [ ! -f $EXEC_PATH ]; then
 	$SCRIPT_DIR/fetch_opencode.sh

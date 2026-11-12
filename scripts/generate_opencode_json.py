@@ -7,36 +7,37 @@ syncs the model's display name, token limits and the provider baseURL into it,
 and writes the finished config into the isolated OpenCode home at
 .runtime/opencode/.config/opencode/opencode.json (or --output).
 start_opencode.sh then launches `opencode serve` with OPENCODE_CONFIG pointed at
-that file, so the template + a mode's model YAML are the single source of truth
+that file, so the template + the model YAML are the single source of truth
 instead of ~/.config/opencode/opencode.json.
 
-Synced from the mode's model YAML (model_single.yaml / model_multi.yaml):
+Synced from a model definition in config/models/ (merged with its _global.yaml,
+see scripts/model_config.py):
 - name:    display name derived from model_key (title-cased)
-- context: from --ctx-size in args — OpenCode reports the real window instead of
-           its built-in default
+- context: from --ctx-size in the merged args — OpenCode reports the real window
+            instead of its built-in default
 - output:  from -n/--predict when present (the per-response max_tokens sent to
-           llama-server), otherwise DEFAULT_OUTPUT_LIMIT. Both limit fields are
-           REQUIRED by OpenCode's schema — a limit with only `context` fails
-           validation and makes the whole model disappear.
+            llama-server), otherwise DEFAULT_OUTPUT_LIMIT. Both limit fields are
+            REQUIRED by OpenCode's schema — a limit with only `context` fails
+            validation and makes the whole model disappear.
 - baseURL: http://localhost:<port>, so the provider block tracks the port in
-           the model YAML instead of drifting from it (no /v1 suffix — see the note
-           where it is set).
+            the model configs instead of drifting from it (no /v1 suffix — see
+            the note where it is set).
 """
 
 import yaml
 import json
 import argparse
-import re
-import shlex
 import sys
 from pathlib import Path
-from typing import List, Optional
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from model_config import load_model_config
 
 
 # Fallback per-response output limit. llama-server itself is unlimited by default
 # (n_predict = -1), so this value only bounds what OpenCode requests per response.
 # 16K leaves room for long agentic responses/tool calls; override it by adding
-# -n <N> (or --predict) to the args list in model.yaml.
+# "-n": <N> (or "--predict") to a model's args mapping in config/models/.
 DEFAULT_OUTPUT_LIMIT = 16384
 
 # Where the finished config lands by default: inside the isolated OpenCode home
@@ -52,73 +53,43 @@ DEFAULT_OUTPUT = REPO_ROOT / '.runtime' / 'opencode' / '.config' / 'opencode' / 
 PROVIDER_KEY = 'local'
 
 
-def extract_flag_value(tokens: List[str], names: List[str]) -> Optional[int]:
-    """
-    Find an integer flag value in a token list, matching either `--flag 123` or
-    `--flag=123` forms. Exact-token matching so e.g. -n never collides with -np.
-
-    Args:
-        tokens: Flattened argv of the model's launch command
-        names: Flag spellings to look for (e.g. ["-n", "--predict"])
-
-    Returns:
-        The value as an int, or None if no matching flag was found
-    """
-    for i, token in enumerate(tokens):
-        if token in names and i + 1 < len(tokens) and tokens[i + 1].isdigit():
-            return int(tokens[i + 1])
-        match = re.match(r"^(?:" + "|".join(re.escape(n) for n in names) + r")=(\d+)$", token)
-        if match:
-            return int(match.group(1))
-    return None
-
-
 def load_model(yaml_path: str):
     """
-    Load the single model definition from a mode's model YAML.
+    Load one model definition (merged with its _global.yaml) for OpenCode.
 
     Args:
-        yaml_path: Path to the model YAML (config/model_single.yaml or
-            config/model_multi.yaml)
+        yaml_path: Path to the model YAML (config/models/model_*.yaml)
 
     Returns:
         (model_key, port, entry) where entry is the OpenCode model dict
         ({"name": ..., optionally "limit": {"context": N, "output": M}})
     """
-    with open(yaml_path, 'r', encoding='utf-8') as f:
-        data = yaml.safe_load(f) or {}
+    cfg = load_model_config(yaml_path)
+    model_key = cfg['model_key']
 
-    if not isinstance(data, dict):
-        print(f"Error: top level of {yaml_path} must be a mapping", file=sys.stderr)
-        sys.exit(1)
-
-    missing = [k for k in ('model_key', 'port') if data.get(k) in (None, '')]
-    if missing:
-        print(f"Error: model.yaml is missing required field(s): {', '.join(missing)}", file=sys.stderr)
-        sys.exit(1)
-
-    try:
-        port = int(data['port'])
-    except (TypeError, ValueError):
-        print(f"Error: 'port' must be an integer, got {data['port']!r}", file=sys.stderr)
-        sys.exit(1)
-
-    model_key = str(data['model_key'])
     # Display name derived from the key the same way as before (title-cased).
     display_name = model_key.replace('-', ' ').replace('_', ' ').title()
     entry: dict = {"name": display_name}
 
-    # args entries may carry flag+value pairs ("--ctx-size 131072") or bare
-    # flags; flatten each one back into individual tokens.
-    tokens: List[str] = []
-    for i, arg in enumerate(data.get('args') or []):
-        if not isinstance(arg, str):
-            print(f"Error: args[{i}] must be a string, got {arg!r}", file=sys.stderr)
-            sys.exit(1)
-        tokens.extend(shlex.split(arg))
+    args = cfg['args']
 
-    ctx_size = extract_flag_value(tokens, ['--ctx-size'])
-    out_size = extract_flag_value(tokens, ['-n', '--predict', '--n-predict'])
+    def arg_int(name: str):
+        value = args.get(name)
+        if value is None:
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            print(f"Error: args entry '{name}' must be an integer, got {value!r}", file=sys.stderr)
+            sys.exit(1)
+
+    # Dict-form args make these direct lookups (no token scanning needed).
+    ctx_size = arg_int('--ctx-size')
+    out_size = None
+    for name in ('-n', '--predict', '--n-predict'):
+        if args.get(name) is not None:
+            out_size = arg_int(name)
+            break
 
     # OpenCode's schema requires BOTH context and output in a limit block;
     # with no --ctx-size we omit the whole block rather than emit an invalid one.
@@ -128,7 +99,7 @@ def load_model(yaml_path: str):
         print(f"Warning: no --ctx-size found in args for model '{model_key}', "
               f"OpenCode will use its default context limit", file=sys.stderr)
 
-    return model_key, port, entry
+    return model_key, cfg['port'], entry
 
 
 def update_json_model(json_path: str, model_key: str, port: int, entry: dict,
@@ -139,7 +110,7 @@ def update_json_model(json_path: str, model_key: str, port: int, entry: dict,
     Args:
         json_path: Path to the JSON template file (read-only source; never modified)
         model_key: The id under which the model is registered (provider/<key>)
-        port: llama-server port — becomes options.baseURL so it tracks model.yaml
+        port: llama-server port — becomes options.baseURL so it tracks the model configs
         entry: OpenCode model dict ({"name": ..., optionally "limit": {...}})
         output_path: Optional output path (default: overwrite input file)
         host: Host for the provider baseURL. 'localhost' for the local instance;
@@ -189,7 +160,7 @@ def main():
     )
     parser.add_argument(
         'yaml_file',
-        help="Path to the model definition YAML file (e.g. config/model_single.yaml)"
+        help="Path to the model definition YAML file (e.g. config/models/model_single.yaml)"
     )
     parser.add_argument(
         'template_file',

@@ -1,0 +1,35 @@
+# Global settings shared by EVERY model config in this directory.
+#
+# Each model_*.yaml here is merged on top of this file: its `args` entries are
+# added to (or override, when the key repeats) the ones below, and any other
+# field it defines (e.g. port) overrides the one here. Files starting with `_`
+# are not model configs — start.sh skips them in its menu.
+#
+# `args` is a mapping of arg name -> value (NOT a list): that is what makes the
+# merge possible. A null value (~) means a bare flag with no argument, e.g.
+# "--jinja": ~ renders as just --jinja. Quote values YAML 1.1 would misparse —
+# notably "on"/"off"/"yes"/"no", which PyYAML turns into booleans unquoted.
+# The merged order is: globals first (in the order listed here), then any args
+# a model adds, appended at the end. llama-server doesn't care about arg order.
+
+port: 5800                                  # llama-server listens here
+
+args:
+  "-ngl": 999                               # all layers on GPU
+  "-fa": "on"                               # flash attention (V100 supports it)
+  "-b": 2048                                # inference batch
+  "-ub": 8192                               # prompt-processing batch; V100 A/B: bigger is faster here
+  "--host": "0.0.0.0"                       # bind all interfaces (remote agents connect over LAN)
+  "--temp": 0.7                             # sampling defaults shared by all modes
+  "--top-p": 0.9
+  "--top-k": 40
+  "--min-p": 0.05
+  "--repeat-penalty": 1.1
+  "--jinja": ~                              # template rendering via the chat template below
+  "--chat-template-file": "config/chat_template.jinja"
+  "--spec-type": draft-mtp                  # MTP spec decode: the GGUF ships its own nextn layer,
+                                            # so no separate draft model (and no draft-model VRAM)
+  "-ngld": 99                               # keep the MTP/draft layers on GPU too
+  "--kv-unified": ~
+  "--reasoning-preserve": ~
+  "--cache-idle-slots": ~

@@ -1,0 +1,31 @@
+# Single-agent mode: one llama-server, full 131K context, f16 KV cache.
+# The everyday setup — the two-concurrent-agents variant lives in model_multi.yaml.
+#
+# Everything here is merged on top of _global.yaml (same directory): shared args
+# and port come from there; only what differs per mode belongs in this file.
+# `args` is a mapping arg name -> value (~ = bare flag), not a list, so the merge works.
+#
+# Read by:
+# - scripts/generate_llama_server_cmd.py — builds the exact command line
+#   start_llama_server.sh runs (binary + --port + -hf + merged args)
+# - scripts/generate_opencode_json.py    — syncs the model into OpenCode's
+#   config: display name from model_key, context limit from --ctx-size in the
+#   merged args, per-response output limit from -n/--predict if present (else
+#   16384), and the provider baseURL from port
+
+description: "Single agent — full 131K context, f16 KV cache"
+model_key: "Swift-1.5-Qwen3.8-27b:Q4KM"
+hf_model: "mradermacher/Swift-1.5-Qwen3.8-27b-i1-GGUF:Q4_K_M"
+
+# Tuned for a Tesla V100 (sm_70 / Volta, FP16 tensor cores) with 32GB VRAM.
+# Q4_K_M weights (~17GB) + f16 KV cache at 131K ctx fit the card comfortably:
+# Swift 1.5 Qwen3.8 is a hybrid SSM/full-attention model (only ~1/4 of layers hold
+# KV), so even unquantized KV stays small — verified live: ~27GiB used under load.
+args:
+  "--ctx-size": 131072                      # full context; f16 KV affords it in single-agent mode
+  "-ctk": f16                               # V100-native FP16 tensor-core format for the KV cache
+  "-ctv": f16
+  "-np": 1                                  # one slot (multi mode uses -np 2)
+  # A/B tested on this V100 (scripts/bench_draft_max.sh, ~6K prefill, temp=0):
+  # tok/s by value -> 2: 48.13, 3: 48.66, 5: 45.95, 7: 53.06 — 7 is optimal here.
+  "--spec-draft-n-max": 7

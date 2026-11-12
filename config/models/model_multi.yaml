@@ -1,21 +1,24 @@
 # Multi-agent mode: two concurrent OpenCode agents served by ONE llama-server
-# with two parallel slots (-np 2). Started via start_multi.sh; the single-agent
-# setup (full 131K context, f16 KV) lives in model_single.yaml.
+# with two parallel slots (-np 2). The single-agent setup (full 131K context,
+# f16 KV) lives in model_single.yaml.
+#
+# Everything here is merged on top of _global.yaml (same directory): shared args
+# and port come from there; only what differs per mode belongs in this file.
+# `args` is a mapping arg name -> value (~ = bare flag), not a list, so the merge works.
 #
 # Read by the same generator scripts as model_single.yaml:
 # - scripts/generate_llama_server_cmd.py — builds the exact command line
-#   start_llama_server.sh runs (binary + --port + -hf + args, in order)
+#   start_llama_server.sh runs (binary + --port + -hf + merged args)
 # - scripts/generate_opencode_json.py    — syncs the model into OpenCode's
-#   config: display name from model_key, context limit from --ctx-size in
-#   args (both agent instances see the 96K slot limit), per-response output
-#   limit from -n/--predict if present (else 16384), and the provider baseURL
-#   from port
+#   config: display name from model_key, context limit from --ctx-size in the
+#   merged args (both agent instances see the 96K slot limit), per-response
+#   output limit from -n/--predict if present (else 16384), and the provider
+#   baseURL from port
 
+description: "Two concurrent agents — two slots, 96K ctx each, q8_0 KV"
 model_key: "Swift-1.5-Qwen3.8-27b:Q4KM"
 hf_model: "mradermacher/Swift-1.5-Qwen3.8-27b-i1-GGUF:Q4_K_M"
-port: 5800                                  # both OpenCode instances point here
 
-# Everything appended after `--port <port> -hf <hf_model>` — verbatim, in order.
 # Tuned for a Tesla V100 (sm_70 / Volta, FP16 tensor cores) with 32GB VRAM to
 # host TWO concurrent agent conversations:
 #   weights + mmproj            ~17.5 GiB
@@ -25,32 +28,15 @@ port: 5800                                  # both OpenCode instances point here
 #   -> ~27 GiB under load, fits 32GB. f16 KV would not (2 x ~6GiB per slot),
 #   which is why single-agent mode can afford it but multi-agent cannot.
 # Context is capped at 98304 per slot to hold that budget; the model's MTP spec
-# decode is kept — each slot drafts independently, and no draft-model VRAM is
-# needed (the layer ships inside the GGUF).
+# decode (from _global.yaml) is kept — each slot drafts independently, and no
+# draft-model VRAM is needed (the layer ships inside the GGUF).
 args:
-  - --ctx-size 98304
-  - -ngl 999
-  - -fa on
-  - -b 2048
-  - -ub 8192
-  - -ctk q8_0
-  - -ctv q8_0
-  - -np 2
-  - --host 0.0.0.0
-  - --temp 0.7
-  - --top-p 0.9
-  - --top-k 40
-  - --min-p 0.05
-  - --repeat-penalty 1.1
-  - --jinja
-  - --chat-template-file config/chat_template.jinja
-  - --spec-type draft-mtp
+  "--ctx-size": 98304                       # per-slot context cap that holds the memory budget above
+  "-ctk": q8_0                              # quantized KV: f16 at two slots would not fit 32GB
+  "-ctv": q8_0
+  "-np": 2                                  # two parallel slots = two independent KV caches
   # Inherited from the single-agent V100 A/B pass (scripts/bench_draft_max.sh:
   # 2: 48.13, 3: 48.66, 5: 45.95, 7: 53.06 tok/s). Re-verify on first multi
   # launch with nvidia-smi — two slots hold twice the draft state; if VRAM is
   # tight, lower this before dropping to q4_0 KV.
-  - --spec-draft-n-max 7
-  - -ngld 99
-  - --kv-unified
-  - --reasoning-preserve
-  - --cache-idle-slots
+  "--spec-draft-n-max": 7
